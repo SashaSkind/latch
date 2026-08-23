@@ -202,9 +202,7 @@ class Runtime:
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
         started_at_ms = _monotonic_ms() - batch_started_at_ms
-        cacheable_read = bool(tool.read_resources) and not (
-            tool.written_resources
-        )
+        cacheable_read = tool.cacheable
         cache_status = "not_cacheable"
         result: ToolResult | None = None
 

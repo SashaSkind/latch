@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -24,6 +25,18 @@ from runtime.runtime import Runtime
 
 
 MAX_TEXT_FILE_BYTES = 1_048_576
+MAX_SUBPROCESS_OUTPUT_BYTES = 1_048_576
+_PYTEST_OPTIONS = frozenset(
+    {
+        "-q",
+        "--quiet",
+        "-x",
+        "--exitfirst",
+        "--disable-warnings",
+        "--strict-config",
+        "--strict-markers",
+    }
+)
 
 
 class OperationError(ValueError):
@@ -36,6 +49,7 @@ class _PreparedOperation:
     arguments: Mapping[str, object]
     read_resources: tuple[ResourceKey, ...] = ()
     written_resources: tuple[ResourceKey, ...] = ()
+    cacheable: bool | None = None
 
 
 async def execute_manifest(
@@ -74,6 +88,7 @@ async def execute_manifest(
                 read_resources=prepared.read_resources,
                 written_resources=prepared.written_resources,
                 deadline_paths=manifest_call.deadline_paths,
+                cacheable=prepared.cacheable,
             )
 
         runtime_calls.append(
@@ -127,7 +142,13 @@ def _prepare_operation(
 ) -> _PreparedOperation:
     if call.operation == "read_file":
         return _prepare_read_file(call.arguments, repository_root)
-    raise OperationError(f"operation is not implemented yet: {call.operation}")
+    if call.operation == "search":
+        return _prepare_search(call.arguments, repository_root)
+    if call.operation == "git_status":
+        return _prepare_git_status(call.arguments, repository_root)
+    if call.operation == "pytest":
+        return _prepare_pytest(call.arguments, repository_root)
+    raise OperationError(f"unsupported operation: {call.operation}")
 
 
 def _prepare_read_file(
@@ -157,7 +178,206 @@ def _prepare_read_file(
         handler=read_file,
         arguments={"path": relative_path},
         read_resources=(ResourceKey(f"file:{relative_path}"),),
+        cacheable=True,
     )
+
+
+def _prepare_search(
+    arguments: Mapping[str, object],
+    repository_root: Path,
+) -> _PreparedOperation:
+    _require_argument_fields(
+        arguments,
+        required={"query"},
+        optional={"path"},
+    )
+    query = arguments["query"]
+    if not isinstance(query, str) or not query:
+        raise OperationError("search.query must be a non-empty string")
+    raw_path = arguments.get("path", ".")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise OperationError("search.path must be a non-empty string")
+
+    path = _resolve_repository_path(
+        raw_path,
+        repository_root=repository_root,
+        must_exist=True,
+    )
+    relative_path = _relative_repository_path(path, repository_root)
+
+    async def search(query: str, path: str) -> str:
+        del query, path
+        return await _run_subprocess(
+            (
+                "rg",
+                "--no-heading",
+                "--line-number",
+                "--color",
+                "never",
+                "--",
+                normalized_query,
+                normalized_path,
+            ),
+            cwd=repository_root,
+            success_codes=frozenset({0, 1}),
+        )
+
+    normalized_query = query
+    normalized_path = relative_path
+    return _PreparedOperation(
+        handler=search,
+        arguments={"query": query, "path": relative_path},
+        read_resources=(ResourceKey(f"scope:{relative_path}"),),
+        cacheable=False,
+    )
+
+
+def _prepare_git_status(
+    arguments: Mapping[str, object],
+    repository_root: Path,
+) -> _PreparedOperation:
+    _require_argument_fields(arguments, required=set())
+    if not (repository_root / ".git").exists():
+        raise OperationError(
+            f"git_status requires a Git repository: {repository_root}"
+        )
+
+    async def git_status() -> str:
+        return await _run_subprocess(
+            (
+                "git",
+                "-c",
+                "color.status=false",
+                "status",
+                "--short",
+                "--branch",
+            ),
+            cwd=repository_root,
+        )
+
+    return _PreparedOperation(
+        handler=git_status,
+        arguments={},
+        read_resources=(ResourceKey("repo:."), ResourceKey("git:.git")),
+        cacheable=False,
+    )
+
+
+def _prepare_pytest(
+    arguments: Mapping[str, object],
+    repository_root: Path,
+) -> _PreparedOperation:
+    _require_argument_fields(
+        arguments,
+        required={"target"},
+        optional={"options"},
+    )
+    raw_target = arguments["target"]
+    if not isinstance(raw_target, str) or not raw_target:
+        raise OperationError("pytest.target must be a non-empty string")
+    target = _resolve_repository_path(
+        raw_target,
+        repository_root=repository_root,
+        must_exist=True,
+    )
+    relative_target = _relative_repository_path(target, repository_root)
+    options = _validate_pytest_options(arguments.get("options", []))
+
+    async def pytest(target: str, options: list[str]) -> str:
+        del target, options
+        return await _run_subprocess(
+            (
+                sys.executable,
+                "-m",
+                "pytest",
+                *normalized_options,
+                "--",
+                normalized_target,
+            ),
+            cwd=repository_root,
+        )
+
+    normalized_target = relative_target
+    normalized_options = options
+    return _PreparedOperation(
+        handler=pytest,
+        arguments={
+            "target": relative_target,
+            "options": list(options),
+        },
+        read_resources=(ResourceKey("repo:."),),
+        written_resources=(
+            ResourceKey("process:pytest"),
+            ResourceKey("file:.pytest_cache"),
+        ),
+        cacheable=False,
+    )
+
+
+def _validate_pytest_options(raw_options: object) -> tuple[str, ...]:
+    if not isinstance(raw_options, list) or not all(
+        isinstance(option, str) for option in raw_options
+    ):
+        raise OperationError("pytest.options must be an array of strings")
+    unsupported = [
+        option for option in raw_options if option not in _PYTEST_OPTIONS
+    ]
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise OperationError(f"unsupported pytest options: {names}")
+    return tuple(raw_options)
+
+
+async def _run_subprocess(
+    command: tuple[str, ...],
+    *,
+    cwd: Path,
+    success_codes: frozenset[int] = frozenset({0}),
+) -> str:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as error:
+        raise OperationError(
+            f"cannot start {command[0]}: {error}"
+        ) from None
+
+    try:
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        await _terminate_process(process)
+        raise
+
+    if len(stdout) + len(stderr) > MAX_SUBPROCESS_OUTPUT_BYTES:
+        raise OperationError(
+            f"{command[0]} output exceeds "
+            f"{MAX_SUBPROCESS_OUTPUT_BYTES} byte limit"
+        )
+    stdout_text = stdout.decode("utf-8", errors="replace")
+    stderr_text = stderr.decode("utf-8", errors="replace").strip()
+    if process.returncode not in success_codes:
+        detail = stderr_text or stdout_text.strip() or "no diagnostic output"
+        raise OperationError(
+            f"{command[0]} exited with {process.returncode}: {detail}"
+        )
+    return stdout_text
+
+
+async def _terminate_process(
+    process: asyncio.subprocess.Process,
+) -> None:
+    if process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=1.0)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
 
 
 def _read_utf8_text(path: Path) -> str:
@@ -207,6 +427,11 @@ def _resolve_repository_path(
             f"repository path escapes root: {raw_path}"
         ) from None
     return resolved
+
+
+def _relative_repository_path(path: Path, repository_root: Path) -> str:
+    relative = path.relative_to(repository_root)
+    return relative.as_posix() or "."
 
 
 def _require_argument_fields(
