@@ -16,8 +16,8 @@ class DeadlinePolicy:
     the runtime.
     """
 
-    full_path_minimum_ms: int = 1_000
-    fast_path_minimum_ms: int = 300
+    full_path_minimum_ms: int = 900
+    fast_path_minimum_ms: int = 500
 
     def __post_init__(self) -> None:
         if self.fast_path_minimum_ms <= 0:

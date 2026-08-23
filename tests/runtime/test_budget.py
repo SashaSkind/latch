@@ -7,10 +7,12 @@ from runtime.budget import DeadlinePolicy
     ("deadline_ms", "expected_path"),
     [
         (1_200, "full"),
-        (1_000, "full"),
-        (999, "fast"),
-        (300, "fast"),
-        (299, "partial"),
+        (900, "full"),
+        (899, "fast"),
+        (700, "fast"),
+        (500, "fast"),
+        (499, "partial"),
+        (300, "partial"),
         (1, "partial"),
     ],
 )
@@ -34,7 +36,7 @@ def test_deadline_thresholds_are_calibratable() -> None:
 
 @pytest.mark.parametrize(
     ("full_threshold", "fast_threshold"),
-    [(300, 300), (299, 300), (300, 0)],
+    [(500, 500), (499, 500), (900, 0)],
 )
 def test_invalid_thresholds_are_rejected(
     full_threshold: int,
