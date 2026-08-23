@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import os
+import signal
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -343,6 +345,7 @@ async def _run_subprocess(
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=os.name == "posix",
         )
     except OSError as error:
         raise OperationError(
@@ -375,12 +378,14 @@ async def _terminate_process(
 ) -> None:
     if process.returncode is not None:
         return
-    process.terminate()
     try:
-        await asyncio.wait_for(process.wait(), timeout=1.0)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+    await process.wait()
 
 
 def _read_utf8_text(path: Path) -> str:

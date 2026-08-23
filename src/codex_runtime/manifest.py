@@ -19,6 +19,7 @@ OperationName: TypeAlias = Literal[
 ]
 
 SCHEMA_VERSION = 1
+MAX_MANIFEST_BYTES = 1_048_576
 SUPPORTED_OPERATIONS: frozenset[str] = frozenset(
     {"read_file", "search", "git_status", "pytest"}
 )
@@ -60,18 +61,28 @@ def load_manifest(path: str | Path) -> BatchManifest:
 
     manifest_path = Path(path)
     try:
-        raw_document = manifest_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
+        raw_bytes = manifest_path.read_bytes()
+    except OSError as error:
         raise ManifestError(
             f"cannot read manifest {manifest_path}: {error}"
         ) from None
+    if len(raw_bytes) > MAX_MANIFEST_BYTES:
+        raise ManifestError(
+            f"manifest exceeds {MAX_MANIFEST_BYTES} byte limit: "
+            f"{manifest_path}"
+        )
+    try:
+        raw_document = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ManifestError(f"manifest is not valid UTF-8: {manifest_path}") from None
 
     try:
         document = json.loads(
             raw_document,
             parse_constant=_reject_non_json_number,
+            object_pairs_hook=_reject_duplicate_fields,
         )
-    except (json.JSONDecodeError, ManifestError) as error:
+    except (json.JSONDecodeError, ManifestError, RecursionError) as error:
         raise ManifestError(f"invalid JSON in {manifest_path}: {error}") from None
 
     return parse_manifest(document)
@@ -216,3 +227,14 @@ def _validate_json_value(value: object, location: str) -> None:
 
 def _reject_non_json_number(value: str) -> object:
     raise ManifestError(f"non-JSON number: {value}")
+
+
+def _reject_duplicate_fields(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ManifestError(f"duplicate JSON field: {key}")
+        value[key] = item
+    return value

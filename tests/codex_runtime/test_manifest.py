@@ -6,6 +6,7 @@ import re
 import pytest
 
 from codex_runtime.manifest import (
+    MAX_MANIFEST_BYTES,
     ManifestError,
     load_manifest,
     parse_manifest,
@@ -154,3 +155,22 @@ def test_load_manifest_reads_utf8_json(tmp_path) -> None:
     manifest = load_manifest(manifest_path)
 
     assert manifest.calls[0].arguments["query"] == "café"
+
+
+def test_load_manifest_rejects_duplicate_json_fields(tmp_path) -> None:
+    manifest_path = tmp_path / "duplicate.json"
+    manifest_path.write_text(
+        '{"schema_version":1,"schema_version":1,"calls":[]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError, match="duplicate JSON field"):
+        load_manifest(manifest_path)
+
+
+def test_load_manifest_rejects_oversized_input(tmp_path) -> None:
+    manifest_path = tmp_path / "oversized.json"
+    manifest_path.write_bytes(b" " * (MAX_MANIFEST_BYTES + 1))
+
+    with pytest.raises(ManifestError, match="manifest exceeds"):
+        load_manifest(manifest_path)
