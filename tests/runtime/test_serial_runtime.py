@@ -61,6 +61,6 @@ def test_serial_batch_runs_in_order_and_emits_timed_trace() -> None:
         assert span.duration_ms > 0
         assert span.read_resources == (ResourceKey("file:src/auth.py"),)
         assert span.written_resources == ()
-        assert span.cache_status == "not_checked"
+        assert span.cache_status == "miss"
         assert span.remaining_budget_ms > 0
         assert span.status == "ok"

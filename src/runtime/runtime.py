@@ -9,6 +9,7 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import Sequence
 
+from runtime.cache import ResourceVersionCache
 from runtime.contracts import (
     DeadlineState,
     EventCallback,
@@ -29,9 +30,16 @@ class Runtime:
         self,
         registry: ToolRegistry,
         *,
+        cache: ResourceVersionCache | None = None,
         event_callback: EventCallback | None = None,
     ) -> None:
+        if cache is not None and cache.fixture_root != registry.fixture_root:
+            raise ValueError("cache and registry fixture roots must match")
+
         self._registry = registry
+        self._cache = cache or ResourceVersionCache(
+            fixture_root=registry.fixture_root
+        )
         self._event_callback = event_callback
 
     async def execute_batch(
@@ -121,24 +129,59 @@ class Runtime:
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
         started_at_ms = _monotonic_ms()
+        cacheable_read = bool(tool.read_resources) and not (
+            tool.written_resources
+        )
+        cache_status = "not_cacheable"
+        result: ToolResult | None = None
 
-        try:
-            output = await tool.handler(**call.arguments)
-        except Exception as error:
-            result = ToolResult(
-                call_id=call.call_id,
-                tool_name=call.tool_name,
-                output=None,
-                status="error",
-                error=f"{type(error).__name__}: {error}",
+        if cacheable_read:
+            lookup = self._cache.lookup(
+                call.tool_name,
+                call.arguments,
+                tool.read_resources,
             )
-        else:
-            result = ToolResult(
-                call_id=call.call_id,
-                tool_name=call.tool_name,
-                output=output,
-                status="ok",
-            )
+            if lookup.hit:
+                cache_status = "hit"
+                result = ToolResult(
+                    call_id=call.call_id,
+                    tool_name=call.tool_name,
+                    output=lookup.value,
+                    status="ok",
+                )
+            else:
+                cache_status = "miss"
+
+        if result is None:
+            try:
+                output = await tool.handler(**call.arguments)
+            except Exception as error:
+                result = ToolResult(
+                    call_id=call.call_id,
+                    tool_name=call.tool_name,
+                    output=None,
+                    status="error",
+                    error=f"{type(error).__name__}: {error}",
+                )
+                if tool.written_resources:
+                    cache_status = "not_invalidated"
+            else:
+                result = ToolResult(
+                    call_id=call.call_id,
+                    tool_name=call.tool_name,
+                    output=output,
+                    status="ok",
+                )
+                if tool.written_resources:
+                    self._cache.advance_versions(tool.written_resources)
+                    cache_status = "invalidated"
+                elif cacheable_read:
+                    self._cache.store(
+                        call.tool_name,
+                        call.arguments,
+                        tool.read_resources,
+                        output,
+                    )
 
         ended_at_ms = _monotonic_ms()
         span = SpanEvent(
@@ -151,7 +194,7 @@ class Runtime:
             duration_ms=ended_at_ms - started_at_ms,
             read_resources=tuple(sorted(tool.read_resources)),
             written_resources=tuple(sorted(tool.written_resources)),
-            cache_status="not_checked",
+            cache_status=cache_status,
             deadline_path="full",
             remaining_budget_ms=deadline_ms
             - (ended_at_ms - batch_started_at_ms),
