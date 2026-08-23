@@ -201,7 +201,7 @@ class Runtime:
         deadline_path: DeadlinePath,
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
-        started_at_ms = _monotonic_ms()
+        started_at_ms = _monotonic_ms() - batch_started_at_ms
         cacheable_read = bool(tool.read_resources) and not (
             tool.written_resources
         )
@@ -256,12 +256,12 @@ class Runtime:
                         output,
                     )
 
-        ended_at_ms = _monotonic_ms()
+        ended_at_ms = _monotonic_ms() - batch_started_at_ms
         span = SpanEvent(
             run_id=run_id,
             call_id=call.call_id,
             tool_name=call.tool_name,
-            event_type="tool_execution",
+            event_type="tool",
             started_at_ms=started_at_ms,
             ended_at_ms=ended_at_ms,
             duration_ms=ended_at_ms - started_at_ms,
@@ -269,8 +269,7 @@ class Runtime:
             written_resources=tuple(sorted(tool.written_resources)),
             cache_status=cache_status,
             deadline_path=deadline_path,
-            remaining_budget_ms=deadline_ms
-            - (ended_at_ms - batch_started_at_ms),
+            remaining_budget_ms=deadline_ms - ended_at_ms,
             status=result.status,
         )
         return result, span
@@ -285,7 +284,7 @@ class Runtime:
         deadline_path: DeadlinePath,
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
-        timed_out_at_ms = _monotonic_ms()
+        timed_out_at_ms = _monotonic_ms() - batch_started_at_ms
         result = ToolResult(
             call_id=call.call_id,
             tool_name=call.tool_name,
@@ -305,8 +304,7 @@ class Runtime:
             written_resources=tuple(sorted(tool.written_resources)),
             cache_status="not_applicable",
             deadline_path=deadline_path,
-            remaining_budget_ms=deadline_ms
-            - (timed_out_at_ms - batch_started_at_ms),
+            remaining_budget_ms=deadline_ms - timed_out_at_ms,
             status="timed_out",
         )
         return result, span
@@ -321,7 +319,7 @@ class Runtime:
         deadline_path: DeadlinePath,
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
-        skipped_at_ms = _monotonic_ms()
+        skipped_at_ms = _monotonic_ms() - batch_started_at_ms
         result = ToolResult(
             call_id=call.call_id,
             tool_name=call.tool_name,
@@ -340,8 +338,7 @@ class Runtime:
             written_resources=tuple(sorted(tool.written_resources)),
             cache_status="not_applicable",
             deadline_path=deadline_path,
-            remaining_budget_ms=deadline_ms
-            - (skipped_at_ms - batch_started_at_ms),
+            remaining_budget_ms=deadline_ms - skipped_at_ms,
             status="skipped",
         )
         return result, span

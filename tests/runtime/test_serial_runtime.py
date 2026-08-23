@@ -56,7 +56,9 @@ def test_serial_batch_runs_in_order_and_emits_timed_trace() -> None:
 
     assert len({span.run_id for span in result.spans}) == 1
     for span in result.spans:
-        assert span.event_type == "tool_execution"
+        assert span.event_type == "tool"
+        assert 0 <= span.started_at_ms <= result.elapsed_ms
+        assert span.ended_at_ms <= result.elapsed_ms
         assert span.started_at_ms <= span.ended_at_ms
         assert span.duration_ms > 0
         assert span.read_resources == (ResourceKey("file:src/auth.py"),)
@@ -64,3 +66,5 @@ def test_serial_batch_runs_in_order_and_emits_timed_trace() -> None:
         assert span.cache_status == "miss"
         assert span.remaining_budget_ms > 0
         assert span.status == "ok"
+
+    assert result.spans[0].to_dict()["call_id"] == "call-1"

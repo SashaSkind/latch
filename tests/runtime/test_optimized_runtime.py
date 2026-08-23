@@ -51,6 +51,8 @@ def test_independent_reads_overlap_in_optimized_mode() -> None:
     assert max(span.started_at_ms for span in result.spans) < min(
         span.ended_at_ms for span in result.spans
     )
+    assert all(0 <= span.started_at_ms for span in result.spans)
+    assert all(span.ended_at_ms <= result.elapsed_ms for span in result.spans)
     assert result.elapsed_ms < sum(span.duration_ms for span in result.spans)
 
 

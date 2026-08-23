@@ -99,7 +99,7 @@ def test_deadline_path_executes_only_eligible_calls(
             assert span.cache_status == "not_applicable"
             assert span.status == "skipped"
         else:
-            assert span.event_type == "tool_execution"
+            assert span.event_type == "tool"
             assert span.status == "ok"
 
 

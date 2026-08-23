@@ -53,7 +53,7 @@ def test_timeout_preserves_completed_call_and_marks_unfinished_call() -> None:
     assert result.tool_outputs[0].output == "fast result"
     assert result.tool_outputs[1].error == "deadline exceeded"
     assert [span.event_type for span in result.spans] == [
-        "tool_execution",
+        "tool",
         "deadline_timeout",
     ]
     assert [event.call_id for event in emitted] == [

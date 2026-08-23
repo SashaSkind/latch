@@ -8,7 +8,7 @@ they are suitable for durations and ordering, not as wall-clock timestamps.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Literal, NewType, Protocol, TypeAlias
 
@@ -64,6 +64,11 @@ class SpanEvent:
     remaining_budget_ms: float
     status: str
 
+    def to_dict(self) -> dict[str, object]:
+        """Return a dashboard-ready representation of the event."""
+
+        return asdict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
@@ -91,4 +96,3 @@ class BatchRuntime(Protocol):
         event_callback: EventCallback | None = None,
     ) -> ExecutionResult:
         """Execute an ordered batch within the supplied latency budget."""
-
