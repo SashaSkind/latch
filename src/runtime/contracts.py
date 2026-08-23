@@ -1,4 +1,4 @@
-"""PROPOSED — pending 5-min lock with Person B.
+"""LOCKED — shared with Person B's demo and telemetry layers.
 
 Shared, serialization-friendly contracts for the in-process runtime and the
 demo telemetry boundary. Timestamps are monotonic milliseconds within a run;
