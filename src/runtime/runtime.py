@@ -97,28 +97,75 @@ class Runtime:
         else:
             waves = build_execution_waves(runnable_calls, self._registry)
 
+        timed_out = False
         for wave in waves:
+            remaining_seconds = (
+                deadline_ms - (_monotonic_ms() - batch_started_at_ms)
+            ) / 1_000
+            if remaining_seconds <= 0:
+                timed_out = True
+                break
+
             indexed_wave = [
                 (positions[id(call)].popleft(), call) for call in wave
             ]
-            completed_wave = await asyncio.gather(
-                *(
-                    self._execute_call(
-                        call,
-                        run_id=run_id,
-                        batch_started_at_ms=batch_started_at_ms,
-                        deadline_ms=deadline_ms,
-                        deadline_path=deadline_path,
-                    )
-                    for _, call in indexed_wave
+            wave_tasks = [
+                (
+                    position,
+                    call,
+                    asyncio.create_task(
+                        self._execute_call(
+                            call,
+                            run_id=run_id,
+                            batch_started_at_ms=batch_started_at_ms,
+                            deadline_ms=deadline_ms,
+                            deadline_path=deadline_path,
+                        )
+                    ),
                 )
-            )
+                for position, call in indexed_wave
+            ]
+            tasks = [task for _, _, task in wave_tasks]
 
-            for (position, _), (result, span) in zip(
-                indexed_wave,
-                completed_wave,
-                strict=True,
-            ):
+            try:
+                _, pending = await asyncio.wait(
+                    tasks,
+                    timeout=remaining_seconds,
+                )
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+            if pending:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                timed_out = True
+
+            for position, _, task in wave_tasks:
+                if task.cancelled():
+                    continue
+                result, span = task.result()
+                output_slots[position] = result
+                span_slots[position] = span
+                await _emit(callback, span)
+
+            if timed_out:
+                break
+
+        if timed_out:
+            for position, call in enumerate(calls):
+                if output_slots[position] is not None:
+                    continue
+                result, span = self._timed_out_call(
+                    call,
+                    run_id=run_id,
+                    batch_started_at_ms=batch_started_at_ms,
+                    deadline_ms=deadline_ms,
+                    deadline_path=deadline_path,
+                )
                 output_slots[position] = result
                 span_slots[position] = span
                 await _emit(callback, span)
@@ -129,11 +176,13 @@ class Runtime:
             raise RuntimeError("runtime did not complete every scheduled call")
 
         elapsed_ms = _monotonic_ms() - batch_started_at_ms
-        deadline_status = (
-            DeadlineState.MET
-            if elapsed_ms <= deadline_ms
-            else DeadlineState.MISSED
-        )
+        if timed_out:
+            deadline_status = DeadlineState.TIMED_OUT
+        elif elapsed_ms <= deadline_ms:
+            deadline_status = DeadlineState.MET
+        else:
+            deadline_status = DeadlineState.MISSED
+
         return ExecutionResult(
             tool_outputs=outputs,
             spans=spans,
@@ -223,6 +272,42 @@ class Runtime:
             remaining_budget_ms=deadline_ms
             - (ended_at_ms - batch_started_at_ms),
             status=result.status,
+        )
+        return result, span
+
+    def _timed_out_call(
+        self,
+        call: ToolCall,
+        *,
+        run_id: str,
+        batch_started_at_ms: float,
+        deadline_ms: int,
+        deadline_path: DeadlinePath,
+    ) -> tuple[ToolResult, SpanEvent]:
+        tool = self._registry.get(call.tool_name)
+        timed_out_at_ms = _monotonic_ms()
+        result = ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            output=None,
+            status="timed_out",
+            error="deadline exceeded",
+        )
+        span = SpanEvent(
+            run_id=run_id,
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            event_type="deadline_timeout",
+            started_at_ms=timed_out_at_ms,
+            ended_at_ms=timed_out_at_ms,
+            duration_ms=0.0,
+            read_resources=tuple(sorted(tool.read_resources)),
+            written_resources=tuple(sorted(tool.written_resources)),
+            cache_status="not_applicable",
+            deadline_path=deadline_path,
+            remaining_budget_ms=deadline_ms
+            - (timed_out_at_ms - batch_started_at_ms),
+            status="timed_out",
         )
         return result, span
 
