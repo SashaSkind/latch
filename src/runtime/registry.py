@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TypeAlias
 
+from runtime.cache import normalize_resource_key
 from runtime.contracts import ResourceKey
 
 
@@ -25,8 +27,13 @@ class RegisteredTool:
 class ToolRegistry:
     """Name-based registry of tools available to the runtime."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fixture_root: str | Path = ".") -> None:
+        self._fixture_root = Path(fixture_root).resolve(strict=False)
         self._tools: dict[str, RegisteredTool] = {}
+
+    @property
+    def fixture_root(self) -> Path:
+        return self._fixture_root
 
     def register(
         self,
@@ -46,8 +53,8 @@ class ToolRegistry:
         tool = RegisteredTool(
             name=name,
             handler=handler,
-            read_resources=frozenset(read_resources),
-            written_resources=frozenset(written_resources),
+            read_resources=self._normalize_resources(read_resources),
+            written_resources=self._normalize_resources(written_resources),
         )
         self._tools[name] = tool
         return tool
@@ -60,3 +67,14 @@ class ToolRegistry:
         except KeyError:
             raise KeyError(f"unknown tool: {name}") from None
 
+    def _normalize_resources(
+        self,
+        resources: Iterable[ResourceKey],
+    ) -> frozenset[ResourceKey]:
+        return frozenset(
+            normalize_resource_key(
+                resource,
+                fixture_root=self._fixture_root,
+            )
+            for resource in resources
+        )
