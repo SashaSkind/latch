@@ -70,6 +70,18 @@ def test_tools_list_exposes_one_bounded_batch_tool() -> None:
     assert tool["annotations"]["readOnlyHint"] is False
 
 
+def test_resource_discovery_returns_explicit_empty_collections() -> None:
+    resources = asyncio.run(handle_message(_request("resources/list")))
+    templates = asyncio.run(
+        handle_message(_request("resources/templates/list"))
+    )
+
+    assert resources is not None
+    assert resources["result"] == {"resources": []}
+    assert templates is not None
+    assert templates["result"] == {"resourceTemplates": []}
+
+
 def test_tool_call_executes_validated_batch_and_returns_locked_result(
     tmp_path,
 ) -> None:

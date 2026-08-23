@@ -213,6 +213,12 @@ async def handle_message(
     if method == "tools/list":
         return _result_response(request_id, {"tools": [TOOL_DEFINITION]})
 
+    if method == "resources/list":
+        return _result_response(request_id, {"resources": []})
+
+    if method == "resources/templates/list":
+        return _result_response(request_id, {"resourceTemplates": []})
+
     if method == "tools/call":
         return await _handle_tool_call(
             request_id,
