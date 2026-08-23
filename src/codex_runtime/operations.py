@@ -285,17 +285,20 @@ def _prepare_pytest(
 
     async def pytest(target: str, options: list[str]) -> str:
         del target, options
-        return await _run_subprocess(
-            (
-                sys.executable,
-                "-m",
-                "pytest",
-                *normalized_options,
-                "--",
-                normalized_target,
-            ),
-            cwd=repository_root,
-        )
+        try:
+            return await _run_subprocess(
+                (
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    *normalized_options,
+                    "--",
+                    normalized_target,
+                ),
+                cwd=repository_root,
+            )
+        except OperationError as error:
+            raise OperationError(f"pytest failed: {error}") from None
 
     normalized_target = relative_target
     normalized_options = options

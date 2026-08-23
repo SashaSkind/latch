@@ -9,6 +9,9 @@ description = "Deadline-aware asyncio runtime and deterministic demo"
 requires-python = ">=3.11"
 dependencies = ["fastapi>=0.115", "uvicorn>=0.30"]
 
+[project.scripts]
+latch = "codex_runtime.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
