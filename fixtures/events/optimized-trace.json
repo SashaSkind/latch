@@ -1,0 +1,6 @@
+[
+  {"run_id":"fixture-optimized","call_id":"deadline","tool_name":"deadline_controller","event_type":"deadline_decision","started_at_ms":0,"ended_at_ms":0,"duration_ms":0,"read_resources":[],"written_resources":[],"cache_status":"not_applicable","deadline_path":"full","remaining_budget_ms":1200,"status":"ok","detail":"selected full path for 1200ms budget"},
+  {"run_id":"fixture-optimized","call_id":"inspect-tests","tool_name":"read_tests","event_type":"tool","started_at_ms":48,"ended_at_ms":354,"duration_ms":306,"read_resources":["file:tests/test_auth.py"],"written_resources":[],"cache_status":"miss","deadline_path":"full","remaining_budget_ms":null,"status":"ok","detail":""},
+  {"run_id":"fixture-optimized","call_id":"search-docs","tool_name":"search_docs","event_type":"tool","started_at_ms":48,"ended_at_ms":350,"duration_ms":302,"read_resources":["doc:README.md"],"written_resources":[],"cache_status":"miss","deadline_path":"full","remaining_budget_ms":null,"status":"ok","detail":""},
+  {"run_id":"fixture-optimized","call_id":"read-architecture","tool_name":"read_architecture","event_type":"tool","started_at_ms":48,"ended_at_ms":357,"duration_ms":309,"read_resources":["doc:architecture.md"],"written_resources":[],"cache_status":"miss","deadline_path":"full","remaining_budget_ms":null,"status":"ok","detail":""}
+]

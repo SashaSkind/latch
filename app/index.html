@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deadline-Aware Runtime</title>
+  <style>
+    :root { color-scheme: dark; --ink: #ecf4f0; --muted: #9badab; --line: #29403b; --panel: #10211e; --bg: #081310; --mint: #5bf0bd; --amber: #ffc75a; --coral: #ff7d6b; }
+    * { box-sizing: border-box; } body { margin: 0; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background: radial-gradient(circle at 15% 0%, #12372d, var(--bg) 42%); color: var(--ink); }
+    main { max-width: 1280px; margin: auto; padding: 38px 24px 60px; } h1 { margin: 0; font-size: clamp(28px, 5vw, 54px); letter-spacing: -3px; } h1 span { color: var(--mint); } .lede { color: var(--muted); max-width: 760px; }
+    .controls, .cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0; } button, input { border: 1px solid var(--line); background: #0d1b18; color: var(--ink); padding: 10px 13px; font: inherit; } button { cursor: pointer; } button.primary { background: var(--mint); border-color: var(--mint); color: #062018; font-weight: bold; } input { width: 92px; }
+    .card { flex: 1 1 180px; padding: 16px; min-height: 94px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 90%, transparent); } .label { color: var(--muted); font-size: 12px; text-transform: uppercase; } .value { font-size: 27px; font-weight: bold; margin-top: 8px; } .good { color: var(--mint); } .warn { color: var(--amber); } .bad { color: var(--coral); }
+    .layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 18px; } section { border: 1px solid var(--line); background: #0b1815; padding: 18px; } h2 { margin: 0 0 16px; font-size: 15px; } #timeline { position: relative; min-height: 310px; } .lane { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; min-height: 39px; border-bottom: 1px solid #1a302b; } .bar-area { position: relative; height: 23px; background: #0d211c; } .bar { position: absolute; height: 100%; min-width: 3px; padding: 3px 6px; overflow: hidden; white-space: nowrap; color: #062018; font-size: 11px; background: var(--mint); } .bar.hit { background: var(--amber); } .event { padding: 8px 0; border-bottom: 1px solid #1a302b; color: var(--muted); font-size: 12px; } .event strong { color: var(--ink); } .note { color: var(--muted); font-size: 12px; }
+    @media (max-width: 760px) { main { padding: 24px 14px; } .layout { grid-template-columns: 1fr; } .lane { grid-template-columns: 118px 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>deadline-aware <span>agent runtime</span></h1>
+    <p class="lede">A controlled coding task with seeded I/O. The same call graph runs serially or in conflict-aware waves; every cache, route, and deadline decision is visible.</p>
+    <div class="controls">
+      <button class="primary" onclick="runPair()">Run serial vs optimized</button>
+      <button onclick="runTight()">Run tight deadline</button>
+      <button onclick="loadFixture()">Replay fixture</button>
+      <label>Budget <input id="budget" type="number" value="1200" min="100" step="100"> ms</label>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="label">Serial elapsed</div><div id="serial" class="value">-</div></div>
+      <div class="card"><div class="label">Optimized elapsed</div><div id="optimized" class="value good">-</div></div>
+      <div class="card"><div class="label">Observed speedup</div><div id="speedup" class="value">-</div></div>
+      <div class="card"><div class="label">Route / deadline</div><div id="deadline" class="value warn">-</div></div>
+    </div>
+    <div class="layout">
+      <section><h2 id="trace-title">Optimized execution trace</h2><div id="timeline"><p class="note">Run the comparison or replay the checked-in trace fixture.</p></div></section>
+      <section><h2>Runtime decisions</h2><div id="events" class="note">No events yet.</div></section>
+    </div>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const fmt = value => `${Math.round(value)}ms`;
+    async function request(mode, budget) { const r = await fetch('/api/run', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({mode, budget_ms:budget, seed:7})}); return r.json(); }
+    async function runPair() { const budget = +$('budget').value; const serial = await request('serial', budget); const optimized = await request('optimized', budget); $('serial').textContent = fmt(serial.elapsed_ms); $('optimized').textContent = fmt(optimized.elapsed_ms); $('speedup').textContent = `${(serial.elapsed_ms / optimized.elapsed_ms).toFixed(2)}x`; render(optimized.events, optimized); }
+    async function runTight() { const result = await request('optimized', 700); $('serial').textContent = 'not run'; $('optimized').textContent = fmt(result.elapsed_ms); $('speedup').textContent = 'fast route'; render(result.events, result); }
+    async function loadFixture() { const fixture = await (await fetch('/api/fixture')).json(); $('serial').textContent = 'fixture'; $('optimized').textContent = '357ms'; $('speedup').textContent = 'parallel'; render(fixture.events, {deadline_path:'full', deadline_status:'met', elapsed_ms:357, mode:'optimized'}); }
+    function render(events, run) { const tools = events.filter(e => e.event_type === 'tool'); const total = Math.max(run.elapsed_ms || 1, ...tools.map(e => e.ended_at_ms)); $('trace-title').textContent = `${run.mode || 'fixture'} execution trace`; $('timeline').innerHTML = tools.map(e => `<div class="lane"><span>${e.tool_name}<br><small>${e.cache_status}</small></span><div class="bar-area"><div class="bar ${e.cache_status === 'hit' ? 'hit' : ''}" style="left:${e.started_at_ms / total * 100}%;width:${Math.max(e.duration_ms / total * 100, 1)}%">${Math.round(e.duration_ms)}ms</div></div></div>`).join('') || '<p class="note">No completed tool spans.</p>';
+      $('deadline').textContent = `${run.deadline_path} / ${run.deadline_status}`; $('deadline').className = `value ${run.deadline_status === 'met' ? 'good' : 'bad'}`;
+      $('events').innerHTML = events.filter(e => e.event_type !== 'tool').map(e => `<div class="event"><strong>${e.event_type}</strong> ${e.tool_name}<br>${e.detail || e.cache_status}</div>`).join('') || 'Tool spans only.';
+    }
+  </script>
+</body>
+</html>
