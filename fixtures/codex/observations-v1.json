@@ -1,0 +1,4 @@
+[
+  {"schema_version": 1, "session_id": "fixture-session", "turn_id": "fixture-turn", "tool_use_id": "tool-1", "phase": "PreToolUse", "tool_name": "Bash", "observed_at_ms": 1720000000000.0, "status": "observed"},
+  {"schema_version": 1, "session_id": "fixture-session", "turn_id": "fixture-turn", "tool_use_id": "tool-1", "phase": "PostToolUse", "tool_name": "Bash", "observed_at_ms": 1720000000120.0, "status": "observed"}
+]

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "tool_outputs": [
+    {"call_id": "read-runtime", "tool_name": "read_file", "output": "Runtime.execute_batch", "status": "ok", "error": null},
+    {"call_id": "search-execute-batch", "tool_name": "search", "output": "src/runtime/runtime.py:49", "status": "ok", "error": null}
+  ],
+  "spans": [
+    {"run_id": "fixture-codex-batch", "call_id": "read-runtime", "tool_name": "read_file", "event_type": "tool", "started_at_ms": 0.0, "ended_at_ms": 85.0, "duration_ms": 85.0, "read_resources": ["file:src/runtime/runtime.py"], "written_resources": [], "cache_status": "miss", "deadline_path": "full", "remaining_budget_ms": 4915.0, "status": "ok"},
+    {"run_id": "fixture-codex-batch", "call_id": "search-execute-batch", "tool_name": "search", "event_type": "tool", "started_at_ms": 1.0, "ended_at_ms": 120.0, "duration_ms": 119.0, "read_resources": ["scope:src"], "written_resources": [], "cache_status": "not_cacheable", "deadline_path": "full", "remaining_budget_ms": 4880.0, "status": "ok"}
+  ],
+  "deadline_path": "full",
+  "elapsed_ms": 120.0,
+  "deadline_status": "met"
+}

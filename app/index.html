@@ -22,6 +22,7 @@
       <button class="primary" onclick="runPair()">Run serial vs optimized</button>
       <button onclick="runTight()">Run tight deadline</button>
       <button onclick="loadFixture()">Replay fixture</button>
+      <button onclick="loadCodexFixture()">Replay Codex fixture</button>
       <label>Budget <input id="budget" type="number" value="1200" min="100" step="100"> ms</label>
     </div>
     <div class="cards">
@@ -32,7 +33,7 @@
     </div>
     <div class="layout">
       <section><h2 id="trace-title">Optimized execution trace</h2><div id="timeline"><p class="note">Run the comparison or replay the checked-in trace fixture.</p></div></section>
-      <section><h2>Runtime decisions</h2><div id="events" class="note">No events yet.</div></section>
+      <section><h2>Runtime decisions</h2><div id="events" class="note">No events yet.</div><h2 style="margin-top:24px">Observed Codex calls</h2><div id="observations" class="note">No hook observations yet.</div></section>
     </div>
   </main>
   <script>
@@ -42,10 +43,14 @@
     async function runPair() { const budget = +$('budget').value; const serial = await request('serial', budget); const optimized = await request('optimized', budget); $('serial').textContent = fmt(serial.elapsed_ms); $('optimized').textContent = fmt(optimized.elapsed_ms); $('speedup').textContent = `${(serial.elapsed_ms / optimized.elapsed_ms).toFixed(2)}x`; render(optimized.events, optimized); }
     async function runTight() { const result = await request('optimized', 700); $('serial').textContent = 'not run'; $('optimized').textContent = fmt(result.elapsed_ms); $('speedup').textContent = 'fast route'; render(result.events, result); }
     async function loadFixture() { const fixture = await (await fetch('/api/fixture')).json(); $('serial').textContent = 'fixture'; $('optimized').textContent = '357ms'; $('speedup').textContent = 'parallel'; render(fixture.events, {deadline_path:'full', deadline_status:'met', elapsed_ms:357, mode:'optimized'}); }
+    async function loadCodexFixture() { const fixture = await (await fetch('/api/codex/fixture')).json(); $('serial').textContent = 'Codex fixture'; $('optimized').textContent = fmt(fixture.batch.elapsed_ms); $('speedup').textContent = 'parallel'; render(fixture.batch.spans, {deadline_path:fixture.batch.deadline_path, deadline_status:fixture.batch.deadline_status, elapsed_ms:fixture.batch.elapsed_ms, mode:'latch batch'}); renderObservations(fixture.observations); }
+    async function refreshObservations() { const response = await fetch('/api/codex/observations'); const data = await response.json(); renderObservations(data.observations); }
+    function renderObservations(observations) { $('observations').innerHTML = observations.map(o => `<div class="event"><strong>${o.phase}</strong> ${o.tool_name}<br>session ${o.session_id} / turn ${o.turn_id}</div>`).join('') || 'No hook observations yet. Codex hooks record metadata only.'; }
     function render(events, run) { const tools = events.filter(e => e.event_type === 'tool'); const total = Math.max(run.elapsed_ms || 1, ...tools.map(e => e.ended_at_ms)); $('trace-title').textContent = `${run.mode || 'fixture'} execution trace`; $('timeline').innerHTML = tools.map(e => `<div class="lane"><span>${e.tool_name}<br><small>${e.cache_status}</small></span><div class="bar-area"><div class="bar ${e.cache_status === 'hit' ? 'hit' : ''}" style="left:${e.started_at_ms / total * 100}%;width:${Math.max(e.duration_ms / total * 100, 1)}%">${Math.round(e.duration_ms)}ms</div></div></div>`).join('') || '<p class="note">No completed tool spans.</p>';
       $('deadline').textContent = `${run.deadline_path} / ${run.deadline_status}`; $('deadline').className = `value ${run.deadline_status === 'met' ? 'good' : 'bad'}`;
       $('events').innerHTML = events.filter(e => e.event_type !== 'tool').map(e => `<div class="event"><strong>${e.event_type}</strong> ${e.tool_name}<br>${e.detail || e.cache_status}</div>`).join('') || 'Tool spans only.';
     }
+    refreshObservations();
   </script>
 </body>
 </html>
