@@ -8,10 +8,13 @@ from pathlib import Path
 from typing import TypeAlias
 
 from runtime.cache import normalize_resource_key
-from runtime.contracts import ResourceKey
+from runtime.contracts import DeadlinePath, ResourceKey
 
 
 ToolHandler: TypeAlias = Callable[..., Awaitable[object]]
+_ALL_DEADLINE_PATHS: frozenset[DeadlinePath] = frozenset(
+    {"full", "fast", "partial"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +25,7 @@ class RegisteredTool:
     handler: ToolHandler
     read_resources: frozenset[ResourceKey]
     written_resources: frozenset[ResourceKey]
+    deadline_paths: frozenset[DeadlinePath]
 
 
 class ToolRegistry:
@@ -42,6 +46,7 @@ class ToolRegistry:
         *,
         read_resources: Iterable[ResourceKey] = (),
         written_resources: Iterable[ResourceKey] = (),
+        deadline_paths: Iterable[DeadlinePath] = _ALL_DEADLINE_PATHS,
     ) -> RegisteredTool:
         """Register one uniquely named tool and its declared resources."""
 
@@ -50,11 +55,20 @@ class ToolRegistry:
         if name in self._tools:
             raise ValueError(f"tool already registered: {name}")
 
+        selected_paths = frozenset(deadline_paths)
+        if not selected_paths:
+            raise ValueError("tool must be eligible for at least one path")
+        invalid_paths = selected_paths - _ALL_DEADLINE_PATHS
+        if invalid_paths:
+            invalid_names = ", ".join(sorted(invalid_paths))
+            raise ValueError(f"unknown deadline paths: {invalid_names}")
+
         tool = RegisteredTool(
             name=name,
             handler=handler,
             read_resources=self._normalize_resources(read_resources),
             written_resources=self._normalize_resources(written_resources),
+            deadline_paths=selected_paths,
         )
         self._tools[name] = tool
         return tool

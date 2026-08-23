@@ -9,8 +9,10 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import Sequence
 
+from runtime.budget import DeadlinePolicy
 from runtime.cache import ResourceVersionCache
 from runtime.contracts import (
+    DeadlinePath,
     DeadlineState,
     EventCallback,
     ExecutionMode,
@@ -31,6 +33,7 @@ class Runtime:
         registry: ToolRegistry,
         *,
         cache: ResourceVersionCache | None = None,
+        deadline_policy: DeadlinePolicy | None = None,
         event_callback: EventCallback | None = None,
     ) -> None:
         if cache is not None and cache.fixture_root != registry.fixture_root:
@@ -40,6 +43,7 @@ class Runtime:
         self._cache = cache or ResourceVersionCache(
             fixture_root=registry.fixture_root
         )
+        self._deadline_policy = deadline_policy or DeadlinePolicy()
         self._event_callback = event_callback
 
     async def execute_batch(
@@ -54,13 +58,10 @@ class Runtime:
 
         if deadline_ms <= 0:
             raise ValueError("deadline_ms must be greater than zero")
-        if mode == "serial":
-            waves = tuple((call,) for call in calls)
-        elif mode == "optimized":
-            waves = build_execution_waves(calls, self._registry)
-        else:
+        if mode not in ("serial", "optimized"):
             raise ValueError(f"unknown execution mode: {mode}")
 
+        deadline_path = self._deadline_policy.select_path(deadline_ms)
         callback = (
             event_callback
             if event_callback is not None
@@ -71,9 +72,30 @@ class Runtime:
         output_slots: list[ToolResult | None] = [None] * len(calls)
         span_slots: list[SpanEvent | None] = [None] * len(calls)
         positions: defaultdict[int, deque[int]] = defaultdict(deque)
+        runnable_calls: list[ToolCall] = []
 
         for position, call in enumerate(calls):
-            positions[id(call)].append(position)
+            tool = self._registry.get(call.tool_name)
+            if deadline_path in tool.deadline_paths:
+                runnable_calls.append(call)
+                positions[id(call)].append(position)
+                continue
+
+            result, span = self._skipped_call(
+                call,
+                run_id=run_id,
+                batch_started_at_ms=batch_started_at_ms,
+                deadline_ms=deadline_ms,
+                deadline_path=deadline_path,
+            )
+            output_slots[position] = result
+            span_slots[position] = span
+            await _emit(callback, span)
+
+        if mode == "serial":
+            waves = tuple((call,) for call in runnable_calls)
+        else:
+            waves = build_execution_waves(runnable_calls, self._registry)
 
         for wave in waves:
             indexed_wave = [
@@ -86,6 +108,7 @@ class Runtime:
                         run_id=run_id,
                         batch_started_at_ms=batch_started_at_ms,
                         deadline_ms=deadline_ms,
+                        deadline_path=deadline_path,
                     )
                     for _, call in indexed_wave
                 )
@@ -114,7 +137,7 @@ class Runtime:
         return ExecutionResult(
             tool_outputs=outputs,
             spans=spans,
-            deadline_path="full",
+            deadline_path=deadline_path,
             elapsed_ms=elapsed_ms,
             deadline_status=deadline_status,
         )
@@ -126,6 +149,7 @@ class Runtime:
         run_id: str,
         batch_started_at_ms: float,
         deadline_ms: int,
+        deadline_path: DeadlinePath,
     ) -> tuple[ToolResult, SpanEvent]:
         tool = self._registry.get(call.tool_name)
         started_at_ms = _monotonic_ms()
@@ -195,10 +219,45 @@ class Runtime:
             read_resources=tuple(sorted(tool.read_resources)),
             written_resources=tuple(sorted(tool.written_resources)),
             cache_status=cache_status,
-            deadline_path="full",
+            deadline_path=deadline_path,
             remaining_budget_ms=deadline_ms
             - (ended_at_ms - batch_started_at_ms),
             status=result.status,
+        )
+        return result, span
+
+    def _skipped_call(
+        self,
+        call: ToolCall,
+        *,
+        run_id: str,
+        batch_started_at_ms: float,
+        deadline_ms: int,
+        deadline_path: DeadlinePath,
+    ) -> tuple[ToolResult, SpanEvent]:
+        tool = self._registry.get(call.tool_name)
+        skipped_at_ms = _monotonic_ms()
+        result = ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            output=None,
+            status="skipped",
+        )
+        span = SpanEvent(
+            run_id=run_id,
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            event_type="deadline_skip",
+            started_at_ms=skipped_at_ms,
+            ended_at_ms=skipped_at_ms,
+            duration_ms=0.0,
+            read_resources=tuple(sorted(tool.read_resources)),
+            written_resources=tuple(sorted(tool.written_resources)),
+            cache_status="not_applicable",
+            deadline_path=deadline_path,
+            remaining_budget_ms=deadline_ms
+            - (skipped_at_ms - batch_started_at_ms),
+            status="skipped",
         )
         return result, span
 
