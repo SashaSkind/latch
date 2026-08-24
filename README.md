@@ -19,7 +19,7 @@ Use **Run tight deadline** to run the 700ms budget and visibly select the `fast`
 ## Codex Integration
 
 The project-local companion skill lives at `.codex/skills/latch-runtime/SKILL.md`.
-It tells Codex to use the future `latch batch` CLI only for known, bounded,
+It tells Codex to use the `latch batch` CLI only for known, bounded,
 read-only repository batches with two or more independent operations. It
 explicitly rejects edits, arbitrary shell input, and tasks where each step
 depends on interpreting the previous result.
@@ -40,9 +40,9 @@ error. The dashboard displays these observations separately from runtime spans.
 
 The version-1 CLI result fixture is at `fixtures/codex/batch-result-v1.json`.
 Select **Replay Codex fixture** in the dashboard to rehearse the visualization
-before Person A's `latch batch` command is available.
+with a checked-in example.
 
-When the CLI lands, its JSON can be sent to `POST /api/codex/batch`; the
+CLI JSON can be sent to `POST /api/codex/batch`; the
 endpoint accepts only a version-1 result with spans and makes those spans
 available through the existing dashboard trace API.
 

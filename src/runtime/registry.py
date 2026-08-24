@@ -26,6 +26,7 @@ class RegisteredTool:
     read_resources: frozenset[ResourceKey]
     written_resources: frozenset[ResourceKey]
     deadline_paths: frozenset[DeadlinePath]
+    cacheable: bool
 
 
 class ToolRegistry:
@@ -47,6 +48,7 @@ class ToolRegistry:
         read_resources: Iterable[ResourceKey] = (),
         written_resources: Iterable[ResourceKey] = (),
         deadline_paths: Iterable[DeadlinePath] = _ALL_DEADLINE_PATHS,
+        cacheable: bool | None = None,
     ) -> RegisteredTool:
         """Register one uniquely named tool and its declared resources."""
 
@@ -63,12 +65,25 @@ class ToolRegistry:
             invalid_names = ", ".join(sorted(invalid_paths))
             raise ValueError(f"unknown deadline paths: {invalid_names}")
 
+        normalized_reads = self._normalize_resources(read_resources)
+        normalized_writes = self._normalize_resources(written_resources)
+        selected_cacheable = (
+            bool(normalized_reads) and not normalized_writes
+            if cacheable is None
+            else cacheable
+        )
+        if selected_cacheable and not normalized_reads:
+            raise ValueError("cacheable tool must declare read resources")
+        if selected_cacheable and normalized_writes:
+            raise ValueError("tool with write resources cannot be cacheable")
+
         tool = RegisteredTool(
             name=name,
             handler=handler,
-            read_resources=self._normalize_resources(read_resources),
-            written_resources=self._normalize_resources(written_resources),
+            read_resources=normalized_reads,
+            written_resources=normalized_writes,
             deadline_paths=selected_paths,
+            cacheable=selected_cacheable,
         )
         self._tools[name] = tool
         return tool

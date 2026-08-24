@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -20,6 +20,59 @@ ROOT = Path(__file__).resolve().parent.parent
 store = TraceStore()
 CODEX_OBSERVATIONS = ROOT / ".latch" / "codex-observations.jsonl"
 app = FastAPI(title="Deadline-Aware Agent Runtime")
+
+SCALE_BENCHMARK: dict[str, object] = {
+    "recorded_at": "2026-08-23",
+    "workload": {
+        "corpus_mib": 1024,
+        "checks": 32,
+        "deadline_ms": 60_000,
+        "operation": "independent full-corpus regex searches",
+    },
+    "latch": {
+        "end_to_end_ms": 31_163,
+        "runtime_ms": 5_936.0735421180725,
+        "tool_calls": 1,
+        "operations": 32,
+        "input_tokens": 86_964,
+        "cached_input_tokens": 69_632,
+        "output_tokens": 770,
+        "reasoning_tokens": 322,
+        "matched_ids": 0,
+        "reported_failures": 0,
+        "deadline_status": "met",
+    },
+    "plain_codex": {
+        "end_to_end_ms": 38_087,
+        "tool_calls": 32,
+        "operations": 32,
+        "input_tokens": 41_134,
+        "cached_input_tokens": 29_184,
+        "output_tokens": 1_472,
+        "reasoning_tokens": 1_083,
+        "matched_ids": 0,
+        "reported_failures": 32,
+    },
+    "comparison": {
+        "end_to_end_speedup": 1.22,
+        "latency_saved_ms": 6_924,
+        "latency_reduction_percent": 18.18,
+        "tool_call_compression": 32,
+        "tool_calls_eliminated": 31,
+        "input_token_overhead": 45_830,
+        "output_tokens_saved": 702,
+    },
+    "scheduler": {
+        "trials": 10,
+        "budget_ms": 1_200,
+        "serial_p50_ms": 1_074,
+        "serial_p95_ms": 1_085,
+        "optimized_p50_ms": 411,
+        "optimized_p95_ms": 417,
+        "speedup": 2.62,
+        "deadline_hit_rate_percent": 100,
+    },
+}
 
 
 class RunRequest(BaseModel):
@@ -54,6 +107,13 @@ async def codex_fixture() -> dict[str, object]:
 @app.get("/api/codex/observations")
 async def codex_observations() -> dict[str, object]:
     return {"observations": [item.to_dict() for item in load_observations(CODEX_OBSERVATIONS)]}
+
+
+@app.get("/api/scale-benchmark")
+async def scale_benchmark() -> dict[str, object]:
+    """Return the recorded Codex MCP scale comparison."""
+
+    return SCALE_BENCHMARK
 
 
 @app.post("/api/codex/batch")

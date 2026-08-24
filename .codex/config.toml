@@ -1,0 +1,9 @@
+[mcp_servers.latch]
+command = "/bin/sh"
+args = ["-c", 'exec env PYTHONPATH="$(git rev-parse --show-toplevel)/src" python3 -m codex_runtime.mcp_server']
+enabled = true
+required = true
+enabled_tools = ["latch_execute_batch"]
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 10
+tool_timeout_sec = 65

@@ -11,7 +11,12 @@
     .controls, .cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0; } button, input { border: 1px solid var(--line); background: #0d1b18; color: var(--ink); padding: 10px 13px; font: inherit; } button { cursor: pointer; } button.primary { background: var(--mint); border-color: var(--mint); color: #062018; font-weight: bold; } input { width: 92px; }
     .card { flex: 1 1 180px; padding: 16px; min-height: 94px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 90%, transparent); } .label { color: var(--muted); font-size: 12px; text-transform: uppercase; } .value { font-size: 27px; font-weight: bold; margin-top: 8px; } .good { color: var(--mint); } .warn { color: var(--amber); } .bad { color: var(--coral); }
     .layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 18px; } section { border: 1px solid var(--line); background: #0b1815; padding: 18px; } h2 { margin: 0 0 16px; font-size: 15px; } #timeline { position: relative; min-height: 310px; } .lane { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; min-height: 39px; border-bottom: 1px solid #1a302b; } .bar-area { position: relative; height: 23px; background: #0d211c; } .bar { position: absolute; height: 100%; min-width: 3px; padding: 3px 6px; overflow: hidden; white-space: nowrap; color: #062018; font-size: 11px; background: var(--mint); } .bar.hit { background: var(--amber); } .event { padding: 8px 0; border-bottom: 1px solid #1a302b; color: var(--muted); font-size: 12px; } .event strong { color: var(--ink); } .note { color: var(--muted); font-size: 12px; }
-    @media (max-width: 760px) { main { padding: 24px 14px; } .layout { grid-template-columns: 1fr; } .lane { grid-template-columns: 118px 1fr; } }
+    .benchmark { margin-top: 18px; } .benchmark-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; margin-bottom: 20px; } .benchmark-head h2 { margin-bottom: 6px; font-size: 18px; } .badge { border: 1px solid var(--line); color: var(--muted); padding: 5px 8px; white-space: nowrap; font-size: 11px; }
+    .benchmark-grid { display: grid; grid-template-columns: minmax(280px, 1.15fr) minmax(320px, 1fr); gap: 22px; } .benchmark-lead { font-size: 36px; line-height: 1; margin: 4px 0 8px; font-weight: bold; color: var(--mint); } .benchmark-copy { color: var(--muted); max-width: 620px; }
+    .compare-bars { margin-top: 24px; } .compare-row { display: grid; grid-template-columns: 104px 1fr 76px; gap: 10px; align-items: center; margin-top: 11px; } .track { height: 28px; background: #0d211c; } .fill { height: 100%; min-width: 3px; background: var(--mint); } .fill.plain { background: var(--amber); } .bar-value { text-align: right; font-weight: bold; }
+    .benchmark-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; } .benchmark-stat { border-top: 1px solid #1a302b; padding: 13px 0; } .benchmark-stat strong { display: block; margin-top: 4px; font-size: 18px; } .benchmark-stat small { color: var(--muted); }
+    .usage { margin-top: 22px; border-top: 1px solid var(--line); } .usage-row { display: grid; grid-template-columns: minmax(100px, 1.4fr) repeat(3, minmax(90px, 1fr)); gap: 10px; padding: 9px 0; border-bottom: 1px solid #1a302b; } .usage-row span:not(:first-child) { text-align: right; } .usage-head { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    @media (max-width: 760px) { main { padding: 24px 14px; } .layout, .benchmark-grid { grid-template-columns: 1fr; } .lane { grid-template-columns: 118px 1fr; } .benchmark-head { display: block; } .badge { display: inline-block; margin-top: 8px; } .usage-row { grid-template-columns: 1.2fr repeat(3, 1fr); font-size: 11px; } }
   </style>
 </head>
 <body>
@@ -35,22 +40,73 @@
       <section><h2 id="trace-title">Optimized execution trace</h2><div id="timeline"><p class="note">Run the comparison or replay the checked-in trace fixture.</p></div></section>
       <section><h2>Runtime decisions</h2><div id="events" class="note">No events yet.</div><h2 style="margin-top:24px">Observed Codex calls</h2><div id="observations" class="note">No hook observations yet.</div></section>
     </div>
+    <section class="benchmark" aria-labelledby="benchmark-title">
+      <div class="benchmark-head">
+        <div>
+          <h2 id="benchmark-title">Codex MCP scale benchmark</h2>
+          <p class="note">Same neutral prompt and Codex build. Thirty-two separate regex checks over a temporary 1 GiB corpus; no synthetic sleeps.</p>
+        </div>
+        <span id="benchmark-date" class="badge">loading benchmark</span>
+      </div>
+      <div id="scale-benchmark"><p class="note">Loading recorded scale result.</p></div>
+    </section>
   </main>
   <script>
     const $ = id => document.getElementById(id);
     const fmt = value => `${Math.round(value)}ms`;
+    const seconds = value => `${(value / 1000).toFixed(2)}s`;
+    const number = value => new Intl.NumberFormat('en-US').format(value);
     async function request(mode, budget) { const r = await fetch('/api/run', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({mode, budget_ms:budget, seed:7})}); return r.json(); }
     async function runPair() { const budget = +$('budget').value; const serial = await request('serial', budget); const optimized = await request('optimized', budget); $('serial').textContent = fmt(serial.elapsed_ms); $('optimized').textContent = fmt(optimized.elapsed_ms); $('speedup').textContent = `${(serial.elapsed_ms / optimized.elapsed_ms).toFixed(2)}x`; render(optimized.events, optimized); }
     async function runTight() { const result = await request('optimized', 700); $('serial').textContent = 'not run'; $('optimized').textContent = fmt(result.elapsed_ms); $('speedup').textContent = 'fast route'; render(result.events, result); }
     async function loadFixture() { const fixture = await (await fetch('/api/fixture')).json(); $('serial').textContent = 'fixture'; $('optimized').textContent = '357ms'; $('speedup').textContent = 'parallel'; render(fixture.events, {deadline_path:'full', deadline_status:'met', elapsed_ms:357, mode:'optimized'}); }
     async function loadCodexFixture() { const fixture = await (await fetch('/api/codex/fixture')).json(); $('serial').textContent = 'Codex fixture'; $('optimized').textContent = fmt(fixture.batch.elapsed_ms); $('speedup').textContent = 'parallel'; render(fixture.batch.spans, {deadline_path:fixture.batch.deadline_path, deadline_status:fixture.batch.deadline_status, elapsed_ms:fixture.batch.elapsed_ms, mode:'latch batch'}); renderObservations(fixture.observations); }
     async function refreshObservations() { const response = await fetch('/api/codex/observations'); const data = await response.json(); renderObservations(data.observations); }
+    async function loadScaleBenchmark() { const response = await fetch('/api/scale-benchmark'); const data = await response.json(); renderScaleBenchmark(data); }
     function renderObservations(observations) { $('observations').innerHTML = observations.map(o => `<div class="event"><strong>${o.phase}</strong> ${o.tool_name}<br>session ${o.session_id} / turn ${o.turn_id}</div>`).join('') || 'No hook observations yet. Codex hooks record metadata only.'; }
+    function renderScaleBenchmark(data) {
+      const latch = data.latch;
+      const plain = data.plain_codex;
+      const comparison = data.comparison;
+      const scheduler = data.scheduler;
+      const workload = data.workload;
+      const latchWidth = latch.end_to_end_ms / plain.end_to_end_ms * 100;
+      $('benchmark-date').textContent = `recorded ${data.recorded_at}`;
+      $('scale-benchmark').innerHTML = `
+        <div class="benchmark-grid">
+          <div>
+            <div class="label">End-to-end winner</div>
+            <div class="benchmark-lead">${comparison.end_to_end_speedup.toFixed(2)}x faster</div>
+            <div class="benchmark-copy">Latch saved ${seconds(comparison.latency_saved_ms)} (${comparison.latency_reduction_percent.toFixed(2)}%) while turning ${plain.tool_calls} separate Codex tool calls into one deadline-aware MCP batch.</div>
+            <div class="compare-bars" aria-label="End-to-end latency comparison">
+              <div class="compare-row"><span>Plain Codex</span><div class="track"><div class="fill plain" style="width:100%"></div></div><span class="bar-value">${seconds(plain.end_to_end_ms)}</span></div>
+              <div class="compare-row"><span>Latch MCP</span><div class="track"><div class="fill" style="width:${latchWidth}%"></div></div><span class="bar-value good">${seconds(latch.end_to_end_ms)}</span></div>
+              <p class="note">Latch runtime execution: ${seconds(latch.runtime_ms)} of ${seconds(latch.end_to_end_ms)} total.</p>
+            </div>
+          </div>
+          <div class="benchmark-stats">
+            <div class="benchmark-stat"><span class="label">Workload</span><strong>${workload.checks} searches / ${number(workload.corpus_mib)} MiB</strong><small>${seconds(workload.deadline_ms)} deadline</small></div>
+            <div class="benchmark-stat"><span class="label">Tool-call compression</span><strong class="good">${plain.tool_calls} → ${latch.tool_calls}</strong><small>${comparison.tool_calls_eliminated} calls eliminated / ${comparison.tool_call_compression}x</small></div>
+            <div class="benchmark-stat"><span class="label">Correct interpretation</span><strong class="good">0 Latch failures</strong><small>Plain Codex reported ${plain.reported_failures}; all were valid zero-match results</small></div>
+            <div class="benchmark-stat"><span class="label">Deadline result</span><strong class="good">${latch.deadline_status}</strong><small>${latch.operations} of ${workload.checks} operations completed</small></div>
+            <div class="benchmark-stat"><span class="label">Scheduler P50</span><strong>${fmt(scheduler.serial_p50_ms)} → <span class="good">${fmt(scheduler.optimized_p50_ms)}</span></strong><small>${scheduler.speedup.toFixed(2)}x across ${scheduler.trials} trials</small></div>
+            <div class="benchmark-stat"><span class="label">Scheduler P95</span><strong>${fmt(scheduler.serial_p95_ms)} → <span class="good">${fmt(scheduler.optimized_p95_ms)}</span></strong><small>${scheduler.deadline_hit_rate_percent}% deadline hit rate at ${fmt(scheduler.budget_ms)}</small></div>
+          </div>
+        </div>
+        <div class="usage" aria-label="Token usage comparison">
+          <div class="usage-row usage-head"><span>Token metric</span><span>Latch MCP</span><span>Plain Codex</span><span>Difference</span></div>
+          <div class="usage-row"><span>Input</span><span>${number(latch.input_tokens)}</span><span>${number(plain.input_tokens)}</span><span class="warn">+${number(comparison.input_token_overhead)}</span></div>
+          <div class="usage-row"><span>Cached input</span><span>${number(latch.cached_input_tokens)}</span><span>${number(plain.cached_input_tokens)}</span><span>+${number(latch.cached_input_tokens - plain.cached_input_tokens)}</span></div>
+          <div class="usage-row"><span>Output</span><span>${number(latch.output_tokens)}</span><span>${number(plain.output_tokens)}</span><span class="good">-${number(comparison.output_tokens_saved)}</span></div>
+          <div class="usage-row"><span>Reasoning output</span><span>${number(latch.reasoning_tokens)}</span><span>${number(plain.reasoning_tokens)}</span><span class="good">-${number(plain.reasoning_tokens - latch.reasoning_tokens)}</span></div>
+        </div>`;
+    }
     function render(events, run) { const tools = events.filter(e => e.event_type === 'tool'); const total = Math.max(run.elapsed_ms || 1, ...tools.map(e => e.ended_at_ms)); $('trace-title').textContent = `${run.mode || 'fixture'} execution trace`; $('timeline').innerHTML = tools.map(e => `<div class="lane"><span>${e.tool_name}<br><small>${e.cache_status}</small></span><div class="bar-area"><div class="bar ${e.cache_status === 'hit' ? 'hit' : ''}" style="left:${e.started_at_ms / total * 100}%;width:${Math.max(e.duration_ms / total * 100, 1)}%">${Math.round(e.duration_ms)}ms</div></div></div>`).join('') || '<p class="note">No completed tool spans.</p>';
       $('deadline').textContent = `${run.deadline_path} / ${run.deadline_status}`; $('deadline').className = `value ${run.deadline_status === 'met' ? 'good' : 'bad'}`;
       $('events').innerHTML = events.filter(e => e.event_type !== 'tool').map(e => `<div class="event"><strong>${e.event_type}</strong> ${e.tool_name}<br>${e.detail || e.cache_status}</div>`).join('') || 'Tool spans only.';
     }
     refreshObservations();
+    loadScaleBenchmark();
   </script>
 </body>
 </html>
